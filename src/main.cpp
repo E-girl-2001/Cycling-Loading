@@ -1,9 +1,8 @@
 
 #include <Arduino.h>
 #include <TaskScheduler.h>
-
+#include "BasicStepperDriver.h"
 #include "motor.h"
-#include "stepper.h"
 
 // ----------------- CONFIG -----------------
 #define CURRENT_SAMPLE_TASK_PERIOD   10   // ms
@@ -42,16 +41,34 @@ enum class SystemState : uint8_t {
 
 static SystemState systemState = SystemState::Idle;
 
+
+// ----------------- STEPPER MOTOR -----------------
+#define MOTOR_STEPS 200
+#define RPM         100
+#define MICROSTEPS  2 
+
+// STEP/DIR pins (your example used DIR=24 STEP=22)
+#define DIR_PIN   24
+#define STEP_PIN  22
+#define ENA_PIN  26
+// Instantiate driver
+static BasicStepperDriver stepper(MOTOR_STEPS, DIR_PIN, STEP_PIN, ENA_PIN);
+
+
 // ----------------- MEASUREMENTS -----------------
 float currentMeasure = 0.0;
 int forceMeasure   = 0;   // keep as placeholder unless you update elsewhere
-int max_force = 200;
-int min_force = 150;
+int targetForce = 500;
+int allowableForceError = 10;
+
+
 
 // ----------------- INIT HELPERS -----------------
 static inline void initSerial() {
   Serial.begin(PC_BAUD_RATE);
 }
+
+
 
 static inline void initLimitSwitch() {
   pinMode(limitSwitchPin, INPUT_PULLUP);
@@ -59,6 +76,8 @@ static inline void initLimitSwitch() {
                   limitSwitchCounterInterupt,
                   FALLING);
 }
+
+
 
 // ----------------- TASKS (callbacks) -----------------
 void taskStateMachine();     // state machine tick task
@@ -71,7 +90,6 @@ void taskLoadCell();
 
 // ----------------- SCHEDULER + TASK OBJECTS -----------------
 Scheduler runner;
-
 // Create tasks: interval, iterations, callback
 Task tStateMachine (STATEMACHINE_TASK_PERIOD, TASK_FOREVER, &taskStateMachine);
 Task tSerialRx     (SERIAL_TASK_PERIOD,       TASK_FOREVER, &taskSerialRecieve);
@@ -83,16 +101,11 @@ Task tLoadCell     (LOAD_CELL_TASK_PERIOD,        TASK_FOREVER, &taskLoadCell);
 
 
 
-
-
-
-
 // ----------------- ARDUINO SETUP/LOOP -----------------
 void setup() {
   // Your existing module inits
   initCurrentMonitoring();
   initMotor();
-  initStepper();
   initLimitSwitch();
   initSerial();
 
@@ -105,21 +118,27 @@ void setup() {
   runner.addTask(tMotor);
   runner.addTask(tLoadCell);
 
+  stepper.begin(RPM, MICROSTEPS);
+  stepper.setEnableActiveState(LOW);
+  stepper.enable();
 
   tStateMachine.enable();
   systemState = SystemState::Calibrating;
 
-
-
 }
 
 void loop() {
-  runner.execute();
+  Serial.println("Loop");
+  stepper.move(100);
+  delay(1000);
+  // runner.execute();
 }
 
 
 
 // ----------------- TASK IMPLEMENTATIONS -----------------
+
+// STATE MACHINE
 void taskStateMachine() {
   
   switch (systemState) {
@@ -144,16 +163,22 @@ void taskStateMachine() {
       // TODO: stall program to wait for a spesfic force measure input???
       setMotorSpeed(255);
       // Control moving the steppper forward until the correct force is measured. 
+      // tStepper.enableIfNot();
 
-      if (forceMeasure > max_force) {
-        stepBackward();
+      // if (forceMeasure > (targetForce + allowableForceError/2)) {
+      //   Serial.print("hi");
+      //   stepper.move(10);
+      //   // stepper.startMove(100 * MOTOR_STEPS * MICROSTEPS); 
+      // } else if (forceMeasure < (targetForce - allowableForceError/2)) {
+      //   Serial.println("ho");
+      //   stepper.move(10);
+      //   // stepper.startMove(100 * MOTOR_STEPS * MICROSTEPS); 
+      // } else {
+      //   Serial.print("STOPPED");
+      //   stepper.stop();
+      // }
 
-      } else if (forceMeasure < min_force) {
-        Serial.println("stepping");
-        stepForward();
-      } else {
-        systemState = SystemState::Idle;
-      }
+
     } break;
 
     case SystemState::Running:
@@ -167,6 +192,7 @@ void taskStateMachine() {
       break;
   }
 }
+
 
 
 void taskSerialRecieve() {
@@ -196,27 +222,22 @@ void taskSerialRecieve() {
 
 
 void taskSerialSend() {
-  Serial.print(F("CycleCount, "));
   Serial.print(cycleCount);
-  Serial.print(F(", Current, "));
+  Serial.print(F(", "));
   Serial.print(currentMeasure);
-  Serial.print(F(", Force, "));
+  Serial.print(F(", "));
   Serial.print(forceMeasure);
-  Serial.print(", State, ");
+  Serial.print(", ");
   switch (systemState) {
     case SystemState::Idle:
       Serial.print("Idle");
       break;
-
     case SystemState::Calibrating:
       Serial.print("Calibrating");
       break;
-
     case SystemState::Running:
       Serial.print("Running");
       break;
-
-
     case SystemState::Fault:
       Serial.print("Fault");
       break;
@@ -230,8 +251,10 @@ void taskCurrentSample() {
   currentMeasure = readCurrent();
 }
 
+
+
 void taskStepper() {
-  // TODO
+
 }
 
 void taskMotor() {
