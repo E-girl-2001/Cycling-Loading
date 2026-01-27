@@ -46,13 +46,9 @@ static SystemState systemState = SystemState::Idle;
 #define MOTOR_STEPS 200
 #define RPM         100
 #define MICROSTEPS  2 
-
-// STEP/DIR pins (your example used DIR=24 STEP=22)
 #define DIR_PIN   24
 #define STEP_PIN  22
-#define ENA_PIN  26
-// Instantiate driver
-static BasicStepperDriver stepper(MOTOR_STEPS, DIR_PIN, STEP_PIN, ENA_PIN);
+static BasicStepperDriver stepper(MOTOR_STEPS, DIR_PIN, STEP_PIN);
 
 
 // ----------------- MEASUREMENTS -----------------
@@ -104,32 +100,30 @@ Task tLoadCell     (LOAD_CELL_TASK_PERIOD,        TASK_FOREVER, &taskLoadCell);
 // ----------------- ARDUINO SETUP/LOOP -----------------
 void setup() {
   // Your existing module inits
-  initCurrentMonitoring();
-  initMotor();
-  initLimitSwitch();
-  initSerial();
+  // initCurrentMonitoring();
+  // initMotor();
+  // initLimitSwitch();
+  // initSerial();
 
   // Add tasks to scheduler chain (execution order = add order)
-  runner.addTask(tStateMachine);
-  runner.addTask(tSerialRx);
-  runner.addTask(tSerialTx);
-  runner.addTask(tCurrent);
-  runner.addTask(tStepper);
-  runner.addTask(tMotor);
-  runner.addTask(tLoadCell);
+  // runner.addTask(tStateMachine);
+  // runner.addTask(tSerialRx);
+  // runner.addTask(tSerialTx);
+  // runner.addTask(tCurrent);
+  // runner.addTask(tStepper);
+  // runner.addTask(tMotor);
+  // runner.addTask(tLoadCell);
 
   stepper.begin(RPM, MICROSTEPS);
-  stepper.setEnableActiveState(LOW);
-  stepper.enable();
 
-  tStateMachine.enable();
-  systemState = SystemState::Calibrating;
+  // tStateMachine.enable();
+  // systemState = SystemState::Calibrating;
 
 }
 
 void loop() {
-  Serial.println("Loop");
-  stepper.move(100);
+  // Serial.println("Loop");
+  stepper.rotate(360);
   delay(1000);
   // runner.execute();
 }
