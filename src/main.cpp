@@ -14,6 +14,9 @@
 
 #define PC_BAUD_RATE 115200
 
+
+
+
 // ----------------- LIMIT SWITCH / ISR -----------------
 const byte limitSwitchPin = 2;
 static const uint32_t LIMIT_DEBOUNCE_MS = 50;
@@ -30,6 +33,22 @@ void limitSwitchCounterInterupt() {
     lastLimitIsrMs = now;
   }
 }
+
+static inline void initLimitSwitch() {
+  pinMode(limitSwitchPin, INPUT_PULLUP);
+  attachInterrupt(digitalPinToInterrupt(limitSwitchPin),
+                  limitSwitchCounterInterupt,
+                  FALLING);
+}
+
+
+
+
+
+
+
+
+
 
 // ----------------- SYSTEM STATE -----------------
 enum class SystemState : uint8_t {
@@ -63,16 +82,6 @@ int allowableForceError = 10;
 static inline void initSerial() {
   Serial.begin(PC_BAUD_RATE);
 }
-
-
-
-static inline void initLimitSwitch() {
-  pinMode(limitSwitchPin, INPUT_PULLUP);
-  attachInterrupt(digitalPinToInterrupt(limitSwitchPin),
-                  limitSwitchCounterInterupt,
-                  FALLING);
-}
-
 
 
 // ----------------- TASKS (callbacks) -----------------
@@ -122,10 +131,7 @@ void setup() {
 }
 
 void loop() {
-  // Serial.println("Loop");
-  stepper.rotate(360);
-  delay(1000);
-  // runner.execute();
+  runner.execute();
 }
 
 
