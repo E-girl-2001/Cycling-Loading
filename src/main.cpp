@@ -37,8 +37,6 @@
 #define STEP_PIN  52
 static BasicStepperDriver stepper(MOTOR_STEPS, DIR_PIN, STEP_PIN);
 
-// ----------------- LIMIT SWITCH -----------------
-#define LIMIT_SWITCH_PIN 2
 
 // ----------------- MEASUREMENTS -----------------
 float currentMeasure = 0.0;
@@ -69,33 +67,29 @@ void initStepper() {
   stepper.begin(RPM, MICROSTEPS);
 }
 
-void limitSwitchCounterInterupt();
+// ----------------- LIMIT SWITCH / ISR (non-blocking, reliable) -----------------
+#define LIMIT_SWITCH_PIN 2
+static const uint32_t LIMIT_DEBOUNCE_US = 200UL * 1000UL; // 200 ms
 
+volatile uint32_t cycleCount = 0;
+volatile uint32_t lastLimitIsrUs = 0;
+volatile bool limitEvent = false;
+
+void limitSwitchCounterInterupt() {
+  const uint32_t now = micros();  // safer than millis() inside ISR on many cores
+  if ((uint32_t)(now - lastLimitIsrUs) >= LIMIT_DEBOUNCE_US) {
+    lastLimitIsrUs = now;     // update first (minimizes chance of double count)
+    cycleCount++;
+    limitEvent = true;
+  }
+}
 
 static inline void initLimitSwitch() {
   pinMode(LIMIT_SWITCH_PIN, INPUT_PULLUP);
   attachInterrupt(digitalPinToInterrupt(LIMIT_SWITCH_PIN),
                   limitSwitchCounterInterupt,
-                  FALLING);
+                  LOW); // assuming switch connects to GND when triggered
 }
-
-// ----------------- LIMIT SWITCH / ISR -----------------
-const byte limitSwitchPin = 2;
-static const uint32_t LIMIT_DEBOUNCE_MS = 50;
-
-volatile uint32_t cycleCount = 0;
-volatile uint32_t lastLimitIsrMs = 0;
-volatile bool limitEvent = false;
-
-void limitSwitchCounterInterupt() {
-  uint32_t now = millis(); // short gating; keep ISR minimal
-  if ((uint32_t)(now - lastLimitIsrMs) >= LIMIT_DEBOUNCE_MS) {
-    cycleCount++;
-    limitEvent = true;
-    lastLimitIsrMs = now;
-  }
-}
-
 
 
 
@@ -145,8 +139,6 @@ void taskFakeLimitSwitch() {
   // Simulate a limit switch event for testing without hardware
   limitEvent = true;
 }
-
-
 
 
 

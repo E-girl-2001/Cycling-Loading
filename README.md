@@ -9,6 +9,28 @@ This program maintains a constant maximum force applied to a  test rig using a c
 
 ---
 
+## Interface
+
+Upload the progam to the arduino using platoform.io. It is important to adjust the target force value in main.cpp before uploading.
+
+### interface.py
+
+Change the name of the desired output .csv file. If it is left the same as the old tetsing it will just append the results onto the end of that csv.
+
+Run the python script interface.py.
+
+Once you run the script, the python terminal will prompt you to enter a letter to perform an action. Type "R" then hit enter to run the program.
+
+Arduino command parser (taskSerialRecieve):
+  'R' -> Running
+  'I' -> Idle
+  'F' -> Fault
+
+Arduino print format (printSystemState):
+  maxForce, targetForce, forceError, nonZeroCount, currentMeasure, StateString
+
+---
+
 ## Program Logic
 
 Force measurement is cycle‑based. When the limit switch is triggered, the system begins recording force values into a buffer. On the next trigger, the maximum recorded value is extracted from that buffer, this value sent over serial to the PC, and the buffer is cleared for the next cycle. Because the limit switch is mounted on the crank motor, this occurs once per revolution. The limit switch triggers an interupt resulting in the program being independent of the crank motor speed (if alternate speed motor is used). The sample rate of the load cell may need to be increased if the speed is increased as the number of samples per revolution is relevent to getting accurate maximum force readings.
@@ -31,11 +53,11 @@ Note: I forgot to add the NC limit switch connected between PIN 2 and GND. (Pin 
 
 The limit switch is configured as an interrupt in `main.cpp`, triggering force-value transmission each revolution. The limit switch needs to be installed on the "Bell Housing" as per the photo.
 
-
 <img src="LimitSwitchLocation.jpeg" style="width:30%; height:auto;">
 
-
 A test task optionally generates a simulated limit-switch event every 500 ms (2 Hz motor equivalent) for debugging and visualization. This is simply implemented as a task that is triggered on the desired period of a simulated limit switch press. This will need to be disabled when the limit switch is triggered by the motor each run.
+
+The limit switch has been debounced. The time between presses it registers is 200ms. This will be too long for if the motor is configured to run a higher speeds than 2Hz (500ms Time period). You will need to adjust this or change the debouncing method if you want to run the test rig at higher speeds with a faster motor.
 
 ---
 
@@ -98,12 +120,9 @@ This is only suitable for running a force exterted calibration with the cranker 
 
 ## Temperature Sensor
 
-A temperature sensor is on order. No interface code written yet. The intended use of this on the cranker motor and is an additional mode of sensing failure. 
+A temperature sensor is on order. No interface code written yet. The intended use of this on the cranker motor and is an additional mode of sensing failure.
 
 ---
-
-
-
 
 ## File Structure
 
@@ -116,4 +135,3 @@ Contains:
 - Control loop logic
 
 Tasks use the **Arduino TaskScheduler** library. `setup()` configures tasks; `loop()` runs the scheduler. All intervals are configurable in `main.cpp`.
-
