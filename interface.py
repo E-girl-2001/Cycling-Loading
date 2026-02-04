@@ -14,6 +14,7 @@ This script:
   - Connects to serial using constants configured below
   - Starts a background reader that parses lines and logs to CSV
   - Lets you send R/I/F from the keyboard to change state
+  - Adds cycle_count column that persists across runs
 """
 
 import csv
@@ -29,8 +30,10 @@ import serial  # pip install pyserial
 # USER CONFIG (EDIT THESE)
 # =========================
 SERIAL_PORT = "COM12"          # e.g. "COM6" (Windows) or "/dev/ttyACM0" (Linux) or "/dev/tty.usbmodemXXXX" (macOS)
-BAUD_RATE = 115200            # must match Serial.begin(...) in your Arduino code
-CSV_OUTPUT_PATH = "rig_log.csv"
+BAUD_RATE = 115200             # must match Serial.begin(...) in your Arduino code
+
+# Output CSV file path, change as needed. If file exists, continues appending.
+CSV_OUTPUT_PATH = "Test_Log_CX_XXXX.csv"
 
 # Optional behavior
 ARDUINO_RESET_WAIT_S = 2.0     # many Arduinos reset when serial opens; wait before reading/sending
@@ -40,6 +43,7 @@ PRINT_LIVE_RX = True           # print parsed RX lines to terminal
 
 CSV_HEADER = [
     "timestamp_iso",
+    "cycle_count",     # <-- NEW COLUMN
     "maxForce",
     "targetForce",
     "forceError",
@@ -115,6 +119,10 @@ class SerialRigClient:
         self._csv_writer = None
         self._rows_since_flush = 0
 
+        # Persisted counter
+        self._cycle_lock = threading.Lock()
+        self.cycle_count = 1  # will be updated on open if file exists
+
     def connect(self):
         self.ser = serial.Serial(
             port=self.port,
@@ -133,16 +141,104 @@ class SerialRigClient:
 
         print(f"[OK] Connected to {self.port} @ {self.baud} baud")
         print(f"[OK] Logging to: {os.path.abspath(self.csv_path)}")
+        print(f"[OK] Starting cycle_count at: {self.cycle_count}")
         print("\nCommands: R=Running, I=Idle, F=Fault, Q=Quit\n")
 
+    # ---------- CSV helpers ----------
+
+    def _ensure_cycle_column(self):
+        """
+        If the CSV exists but doesn't have cycle_count in its header,
+        migrate it by rewriting with the new header and adding cycle_count.
+        Creates a .bak backup first.
+        """
+        if not os.path.isfile(self.csv_path):
+            return  # nothing to migrate
+
+        # Read header only
+        with open(self.csv_path, "r", newline="", encoding="utf-8") as f:
+            reader = csv.reader(f)
+            try:
+                existing_header = next(reader)
+            except StopIteration:
+                existing_header = []
+
+        if "cycle_count" in existing_header:
+            return  # already good
+
+        # If empty file, just let header be written fresh in _open_csv
+        if not existing_header:
+            return
+
+        # Backup then rewrite
+        backup_path = self.csv_path + f".bak_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+        os.replace(self.csv_path, backup_path)
+        print(f"[INFO] Existing CSV missing cycle_count. Backed up to: {backup_path}")
+
+        # Rewrite with new header, populate cycle_count sequentially
+        cycle = 1
+        with open(backup_path, "r", newline="", encoding="utf-8") as src, \
+             open(self.csv_path, "w", newline="", encoding="utf-8") as dst:
+
+            in_reader = csv.DictReader(src)
+            out_writer = csv.DictWriter(dst, fieldnames=CSV_HEADER)
+            out_writer.writeheader()
+
+            for row in in_reader:
+                # Carry across known fields; keep raw_line etc if present
+                out_row = {h: row.get(h, "") for h in CSV_HEADER}
+                out_row["cycle_count"] = cycle
+                out_writer.writerow(out_row)
+                cycle += 1
+
+        print(f"[INFO] Migration complete. Rewritten CSV now includes cycle_count.")
+
+    def _get_last_cycle_count(self) -> int:
+        """
+        Returns the last cycle_count in the CSV, or 0 if none.
+        """
+        if not os.path.isfile(self.csv_path):
+            return 0
+
+        try:
+            with open(self.csv_path, "r", newline="", encoding="utf-8") as f:
+                reader = csv.DictReader(f)
+                if not reader.fieldnames:
+                    return 0
+                if "cycle_count" not in reader.fieldnames:
+                    return 0
+
+                last = 0
+                for row in reader:
+                    val = row.get("cycle_count", "")
+                    try:
+                        if val != "":
+                            last = int(float(val))
+                    except ValueError:
+                        # ignore bad values
+                        pass
+                return last
+        except Exception:
+            return 0
+
     def _open_csv(self):
+        # If old file exists without the new column, migrate it first
+        self._ensure_cycle_column()
+
         file_exists = os.path.isfile(self.csv_path)
+
+        # Determine starting cycle_count
+        last = self._get_last_cycle_count()
+        self.cycle_count = last + 1 if last > 0 else 1
+
         self._csv_file = open(self.csv_path, "a", newline="", encoding="utf-8")
         self._csv_writer = csv.DictWriter(self._csv_file, fieldnames=CSV_HEADER)
 
         if not file_exists:
             self._csv_writer.writeheader()
             self._csv_file.flush()
+
+    # ---------- lifecycle ----------
 
     def close(self):
         self.stop_event.set()
@@ -164,6 +260,8 @@ class SerialRigClient:
             pass
 
         print("[OK] Closed serial + CSV")
+
+    # ---------- serial TX/RX ----------
 
     def send_state_command(self, cmd: str):
         """Send a single-character command: R / I / F."""
@@ -192,8 +290,13 @@ class SerialRigClient:
                     # Ignore non-matching debug lines silently
                     continue
 
+                with self._cycle_lock:
+                    cycle = self.cycle_count
+                    self.cycle_count += 1
+
                 row = {
                     "timestamp_iso": now_iso(),
+                    "cycle_count": cycle,  # <-- NEW COLUMN VALUE
                     "maxForce": parsed["maxForce"],
                     "targetForce": parsed["targetForce"],
                     "forceError": parsed["forceError"],
@@ -212,9 +315,10 @@ class SerialRigClient:
 
                 if PRINT_LIVE_RX:
                     print(
-                        f"[RX] max={row['maxForce']:.3f}, target={row['targetForce']:.3f}, "
-                        f"err={row['forceError']:.3f}, nz={row['nonZeroCount']}, "
-                        f"I={row['currentMeasure']:.2f}, state={row['systemState']}"
+                        f"[RX] cycle={row['cycle_count']}, max={row['maxForce']:.3f}, "
+                        f"target={row['targetForce']:.3f}, err={row['forceError']:.3f}, "
+                        f"nz={row['nonZeroCount']}, I={row['currentMeasure']:.2f}, "
+                        f"state={row['systemState']}"
                     )
 
             except serial.SerialException as e:

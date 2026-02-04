@@ -6,27 +6,34 @@
 ## Overview
 
 This program maintains a constant maximum force applied to a  test rig using a crank–slider mechanism. A control loop adjusts the motor output to match a configured target maximum force. Both the force setpoint and allowable force variation are cofigured in the main.cpp script.
----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+
+---
 
 ## Program Logic
 
-Force measurement is cycle‑based. When the limit switch is triggered, the system begins recording force values into a buffer. On the next trigger, the maximum recorded value is extracted from that buffer, this value sent over serial to the PC, and the buffer is cleared for the next cycle. Because the limit switch is mounted on the crank motor, this occurs once per revolution. The limit switch triggers an interupt resulting in the program being independent of the crank motor speed. The sample rate of the load cell may need to be increased if the speed is increased.
+Force measurement is cycle‑based. When the limit switch is triggered, the system begins recording force values into a buffer. On the next trigger, the maximum recorded value is extracted from that buffer, this value sent over serial to the PC, and the buffer is cleared for the next cycle. Because the limit switch is mounted on the crank motor, this occurs once per revolution. The limit switch triggers an interupt resulting in the program being independent of the crank motor speed (if alternate speed motor is used). The sample rate of the load cell may need to be increased if the speed is increased as the number of samples per revolution is relevent to getting accurate maximum force readings.
 
-The state machine is as follows:
+The rough state machine logic is as follows:
 
 <img src="StateMachine.png" style="width:50%; height:auto;">
 
-You will likey need to make cables for the arduno connections as
+## Wiring
 
 The wiring diagram is as follows:
 
 <img src="WiringDiagram.png" style="width:50%; height:auto;">
 
+Note: I forgot to add the NC limit switch connected between PIN 2 and GND. (Pin 2 is one of the Ardunio Mega Interupt Pins)
+
 ---
 
 ## Limit Switch
 
-The limit switch is configured as an interrupt in `main.cpp`, triggering force-value transmission each revolution.
+The limit switch is configured as an interrupt in `main.cpp`, triggering force-value transmission each revolution. The limit switch needs to be installed on the "Bell Housing" as per the photo.
+
+
+<img src="LimitSwitchLocation.jpeg" style="width:30%; height:auto;">
+
 
 A test task optionally generates a simulated limit-switch event every 500 ms (2 Hz motor equivalent) for debugging and visualization. This is simply implemented as a task that is triggered on the desired period of a simulated limit switch press. This will need to be disabled when the limit switch is triggered by the motor each run.
 
@@ -95,6 +102,9 @@ A temperature sensor is on order. No interface code written yet. The intended us
 
 ---
 
+
+
+
 ## File Structure
 
 ### `src/main.cpp`
@@ -106,3 +116,4 @@ Contains:
 - Control loop logic
 
 Tasks use the **Arduino TaskScheduler** library. `setup()` configures tasks; `loop()` runs the scheduler. All intervals are configurable in `main.cpp`.
+

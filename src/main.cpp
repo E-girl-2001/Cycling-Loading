@@ -351,11 +351,11 @@ void setup() {
   // Temporary: for testing without hardware limit switch
   // remove when the limit switch is attached and is triggered periodically by the crank
   runner.addTask(tFakeLimitSwitch);
-  tFakeLimitSwitch.enable();
+  // tFakeLimitSwitch.enable();
 
   // Start in running state for testing
   // Should be set to Idle and started via serial command in real use
-  systemState = SystemState::Running;
+  systemState = SystemState::Idle;
 
 }
 
