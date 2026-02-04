@@ -6,7 +6,7 @@
 #define IN2 12
 #define ENA 10
 #define CURRENT_SENSE_PIN A0
-#define SENSE_RESISTOR_VALUE 1.65
+#define SENSE_RESISTOR_VALUE 1.65f
 
 
 

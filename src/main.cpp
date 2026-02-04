@@ -48,6 +48,10 @@ int allowableForceError = 50;
 int forceBuffer[1000];
 size_t forceBufferIndex = 0;
 int forceError = 0;
+int nonZeroCount = 0;
+
+// ------------------ LOAD CELL -----------------
+#define LOAD_CELL_PIN A1
 
 
 
@@ -58,7 +62,7 @@ static inline void initSerial() {
 }
 // Load Cell implementation w/ Temp Pot
 void initLoadCell() {
-  pinMode(A1, INPUT);
+  pinMode(LOAD_CELL_PIN, INPUT);
 }
 
 void initStepper() {
@@ -112,6 +116,7 @@ void printSystemState(SystemState state);
 // ----------------- TASKS (callbacks) -----------------
 void taskStateMachine();     // state machine tick task
 void taskSerialRecieve();
+void taskSerialTransmit();
 void taskStepper();
 void taskMotor();
 void taskCurrentSample();
@@ -122,6 +127,7 @@ Scheduler runner;
 // Create tasks: interval, iterations, callback
 Task tStateMachine (STATEMACHINE_TASK_PERIOD, TASK_FOREVER, &taskStateMachine);
 Task tSerialRx     (SERIAL_TASK_PERIOD,       TASK_FOREVER, &taskSerialRecieve);
+Task tSerialTx     (SERIAL_TASK_PERIOD,       TASK_FOREVER, &taskSerialTransmit);
 Task tCurrent      (CURRENT_SAMPLE_TASK_PERIOD, TASK_FOREVER, &taskCurrentSample);
 Task tStepper      (STEPPER_TASK_PERIOD,      TASK_FOREVER, &taskStepper);
 Task tMotor        (MOTOR_TASK_PERIOD,        TASK_FOREVER, &taskMotor);
@@ -144,8 +150,6 @@ void taskFakeLimitSwitch() {
 
 
 
-
-
 // ----------------- TASK IMPLEMENTATIONS -----------------
 // STATE MACHINE
 void taskStateMachine() {
@@ -155,7 +159,6 @@ void taskStateMachine() {
     // TODO: add idle behavior if needed
     // Disable actuators, keep comms alive
     setMotorSpeed(0);
-
       break;
 
     case SystemState::Running: {
@@ -166,6 +169,8 @@ void taskStateMachine() {
         // Limit switch was triggered; reset event flag
         limitEvent = false;
         systemState = SystemState::Sending;
+      } else {
+        // printSystemState(systemState);
       }
 
     } break;
@@ -173,7 +178,6 @@ void taskStateMachine() {
     case SystemState::Sending: {
       // Send the maximum value collected in the force buffer over serial to the PC and then clear the buffer
         maxForce = 0;
-        int nonZeroCount = 0;
         for (size_t i = 0; i < 1000; i++) {
           if (forceBuffer[i] != 0) {
             nonZeroCount++;
@@ -185,13 +189,7 @@ void taskStateMachine() {
           forceBuffer[i] = 0; // clear buffer
         }
 
-        Serial.print(F("Max Force: "));
-        Serial.print(maxForce);
-        Serial.print(" Error: ");
         forceError = targetForce - maxForce;
-        Serial.print(forceError);
-        Serial.print(" Samples Counted: ");
-        Serial.print(nonZeroCount);
         printSystemState(systemState);
         nonZeroCount = 0;
         forceBufferIndex = 0; // reset index
@@ -203,29 +201,41 @@ void taskStateMachine() {
 
     case SystemState::Fault:
       // safe stop; keep comms and sensing alive
+      setMotorSpeed(0);
       break;
   }
 }
 
 void printSystemState(SystemState state) {
-  Serial.print(" System State: ");
+  Serial.print(maxForce);
+  Serial.print(", ");
+  Serial.print(targetForce);
+  Serial.print(", ");
+  Serial.print(forceError);
+  Serial.print(", ");
+  Serial.print(nonZeroCount);
+  Serial.print(", ");
+  Serial.print(currentMeasure, 2);
+  Serial.print(", ");
+
   switch (state) {
     case SystemState::Idle:
-      Serial.println("Idle");
+      Serial.print("Idle");
       break;
     case SystemState::Running:
-      Serial.println("Running");
+      Serial.print("Running");
       break;
     case SystemState::Sending:
-      Serial.println("Sending");
+      Serial.print("Sending");
       break;
     case SystemState::Fault:
-      Serial.println("Fault");
+      Serial.print("Fault");
       break;
     default:
-      Serial.println("Unknown");
+      Serial.print("Unknown");
       break;
   }
+  Serial.println();
 }
 
 void taskSerialRecieve() {
@@ -287,7 +297,7 @@ void taskStepper() {
 
 void taskLoadCell() {
   // Read force value from load cell (via temp pot for this prototype)
-  forceBuffer[forceBufferIndex] = analogRead(A1);
+  forceBuffer[forceBufferIndex] = analogRead(LOAD_CELL_PIN);
   forceBufferIndex = (forceBufferIndex + 1) % 1000;
 
 }
@@ -303,7 +313,10 @@ void taskMotor() {
 }
 
 
-
+void taskSerialTransmit() {
+  // Transmit current system status periodically
+  printSystemState(systemState);
+}
 
 
 
